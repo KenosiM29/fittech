@@ -1,26 +1,28 @@
-// apps/mobile/src/screens/GymCapacityScreen.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View, Text, StyleSheet, ActivityIndicator, TouchableOpacity,
-  ScrollView, SafeAreaView, StatusBar, Modal,
+  StatusBar, Modal,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from '@expo/vector-icons';
+import { getActiveBookingGymId } from "../hooks/useGym";
 import Svg, { Circle } from "react-native-svg";
 import { useGyms, useGymDetail } from "../hooks/useGym";
 import { GymSummary, TimeSlot } from "../api/client";
 
 const C = {
-  bg:          "#0A0F1E",
-  surface:     "#111827",
-  card:        "#141E2E",
-  border:      "#1F2D40",
-  orange:      "#F97316",
-  green:       "#22C55E",
-  red:         "#EF4444",
-  amber:       "#F59E0B",
-  blue:        "#3B82F6",
-  textPrimary: "#F1F5F9",
-  textSec:     "#94A3B8",
-  textMuted:   "#334155",
+  bg:          "#111827", 
+  surface:     "#0B1220",
+  card:        "#0F1724",
+  border:      "#1F2937",
+  orange:      "#D97706",
+  green:       "#16A34A",
+  red:         "#DC2626",
+  amber:       "#B45309",
+  blue:        "#2563EB",
+  textPrimary: "#E6EEF6",
+  textSec:     "#9AA8B8",
+  textMuted:   "#6B7280",
 };
 
 function getCapacityColor(pct: number) {
@@ -36,13 +38,13 @@ function getStatus(pct: number, isFull: boolean) {
   return              { label: "Busy",      color: C.red   };
 }
 
-// ── Mini ring ────────────────────────────────────────────────
 const MiniRing: React.FC<{ pct: number; size?: number }> = ({ pct, size = 52 }) => {
   const sw    = 5;
   const r     = (size - sw) / 2;
+  const clamped = Math.min(100, Math.max(0, Math.round(pct)));
   const circ  = 2 * Math.PI * r;
-  const dash  = (Math.min(Math.max(pct, 0), 100) / 100) * circ;
-  const color = getCapacityColor(pct);
+  const dash  = (clamped / 100) * circ;
+  const color = getCapacityColor(clamped);
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
       <Svg width={size} height={size} style={{ position: "absolute" }}>
@@ -51,12 +53,11 @@ const MiniRing: React.FC<{ pct: number; size?: number }> = ({ pct, size = 52 }) 
           strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
           rotation="-90" origin={`${size/2},${size/2}`} />
       </Svg>
-      <Text style={{ fontSize: size > 60 ? 16 : 11, fontWeight: "700", color }}>{pct}%</Text>
+      <Text style={{ fontSize: size > 60 ? 16 : 11, fontWeight: "700", color }}>{clamped}%</Text>
     </View>
   );
 };
 
-// ── Status pill ──────────────────────────────────────────────
 const StatusPill: React.FC<{ label: string; color: string }> = ({ label, color }) => (
   <View style={[styles.statusPill, { backgroundColor: color + "20", borderColor: color + "50" }]}>
     <View style={[styles.statusDot, { backgroundColor: color }]} />
@@ -64,18 +65,20 @@ const StatusPill: React.FC<{ label: string; color: string }> = ({ label, color }
   </View>
 );
 
-// ── Gym list card ────────────────────────────────────────────
 const GymCard: React.FC<{ gym: GymSummary; onPress: () => void }> = ({ gym, onPress }) => {
   const status    = getStatus(gym.percentFull, gym.isFull);
   const available = gym.capacity - gym.currentCount;
   return (
-    <TouchableOpacity style={styles.gymCard} onPress={onPress} activeOpacity={0.8}>
+  <TouchableOpacity style={styles.gymCard} onPress={onPress} activeOpacity={0.9}>
       <View style={styles.gymCardLeft}>
         <View style={styles.gymCardHeader}>
           <Text style={styles.gymCardName} numberOfLines={1}>{gym.name}</Text>
           <StatusPill label={status.label} color={status.color} />
         </View>
-        <Text style={styles.gymCardAddress} numberOfLines={1}>📍 {gym.address}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Ionicons name="location-outline" size={14} color={C.textSec} style={{ marginRight: 6 }} />
+          <Text style={styles.gymCardAddress} numberOfLines={1}>{gym.address}</Text>
+        </View>
         <View style={styles.gymCardStats}>
           <Text style={styles.gymCardStat}>
             <Text style={{ color: C.textPrimary, fontWeight: "600" }}>{gym.currentCount}</Text>
@@ -92,7 +95,6 @@ const GymCard: React.FC<{ gym: GymSummary; onPress: () => void }> = ({ gym, onPr
   );
 };
 
-// ── Slot picker ──────────────────────────────────────────────
 const SlotPicker: React.FC<{
   slots: TimeSlot[];
   selected: string | null;
@@ -132,7 +134,6 @@ const SlotPicker: React.FC<{
   </View>
 );
 
-// ── Gym detail modal ─────────────────────────────────────────
 const GymDetailModal: React.FC<{
   gym: GymSummary;
   visible: boolean;
@@ -145,17 +146,17 @@ const GymDetailModal: React.FC<{
 
   const isBooked  = bookingState === "success";
   const isBooking = bookingState === "loading";
+  const activeBookingId = getActiveBookingGymId();
   const status    = getStatus(gym.percentFull, gym.isFull);
   const available = Math.max(0, gym.capacity - gym.currentCount);
 
-  // Button label logic
   const getBtnLabel = () => {
-    if (isBooked)  return "✓  Booking Confirmed!";
-    if (isBooking) return "";
-    if (gym.isFull) return "Reserve Next Available Slot";
-    if (!selectedSlot) return "Select a time slot above";
-    const match = slots.find((s) => s.slotTime === selectedSlot);
-    return `Book slot at ${match?.label ?? ""}`;
+  if (isBooked)  return "✓ Booking Confirmed";
+  if (isBooking) return "Booking…";
+  if (gym.isFull) return "Gym is full";
+  if (!selectedSlot) return "Select a time slot above";
+  const match = slots.find((s) => s.slotTime === selectedSlot);
+  return `Book slot at ${match?.label ?? ""}`;
   };
 
   return (
@@ -171,14 +172,14 @@ const GymDetailModal: React.FC<{
           contentContainerStyle={styles.modalScroll}
           showsVerticalScrollIndicator={false}
         >
-          {/* Close button */}
+         
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeTxt}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Gym name + address */}
+        
           <Text style={styles.modalName}>{gym.name}</Text>
           <Text style={styles.modalAddress}>📍 {gym.address}</Text>
 
@@ -207,18 +208,19 @@ const GymDetailModal: React.FC<{
             </View>
           </View>
 
-          {/* Status pill */}
           <View style={{ marginTop: 16, marginBottom: 20 }}>
             <StatusPill label={status.label} color={status.color} />
           </View>
 
           <View style={styles.divider} />
 
-          {/* Full gym flow */}
           {gym.isFull ? (
             <>
               <View style={styles.fullBanner}>
-                <Text style={styles.fullBannerTitle}>🔴 Gym is currently full</Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Ionicons name="close-circle" size={18} color="#F87171" style={{ marginRight: 8 }} />
+                  <Text style={styles.fullBannerTitle}>Gym is currently full</Text>
+                </View>
                 <Text style={styles.fullBannerSub}>
                   You can reserve the next available slot — you'll be guaranteed entry when
                   a spot opens up.
@@ -230,19 +232,19 @@ const GymDetailModal: React.FC<{
                   styles.bookBtn,
                   isBooked  && { backgroundColor: C.green, borderColor: C.green },
                   isBooking && { opacity: 0.7 },
+                  activeBookingId && activeBookingId !== gym.gymId && { backgroundColor: "#2A3740", borderColor: C.border, opacity: 0.9 },
                 ]}
-                onPress={() => book(gym)}
-                disabled={isBooked || isBooking}
+                onPress={() => { /* disabled when full */ }}
+                disabled={true}
                 activeOpacity={0.85}
               >
                 {isBooking
                   ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.bookBtnTxt}>{getBtnLabel()}</Text>
+                  : <Text style={styles.bookBtnTxt}>{activeBookingId && activeBookingId !== gym.gymId ? "Booking locked to another gym" : getBtnLabel()}</Text>
                 }
               </TouchableOpacity>
             </>
           ) : (
-            /* Open gym — show time slots */
             <>
               <Text style={styles.sectionTitle}>Pick a time slot</Text>
               <Text style={styles.sectionSub}>
@@ -261,7 +263,7 @@ const GymDetailModal: React.FC<{
                   isBooked && { backgroundColor: C.green, borderColor: C.green },
                 ]}
                 onPress={() => book(gym)}
-                disabled={!selectedSlot || isBooked || isBooking}
+                disabled={!selectedSlot || isBooked || isBooking || (Boolean(activeBookingId) && activeBookingId !== gym.gymId)}
                 activeOpacity={0.85}
               >
                 {isBooking
@@ -270,14 +272,13 @@ const GymDetailModal: React.FC<{
                       styles.bookBtnTxt,
                       !selectedSlot && !isBooked && { color: C.textSec },
                     ]}>
-                      {getBtnLabel()}
+                      {activeBookingId && activeBookingId !== gym.gymId ? "Booking locked to another gym" : getBtnLabel()}
                     </Text>
                 }
               </TouchableOpacity>
             </>
           )}
 
-          {/* Booking error */}
           {bookingState === "error" && (
             <View style={styles.errBanner}>
               <Text style={styles.errBannerTxt}>
@@ -292,10 +293,42 @@ const GymDetailModal: React.FC<{
   );
 };
 
-// ── Main screen ──────────────────────────────────────────────
 export const GymCapacityScreen: React.FC = () => {
   const { gyms, loading, error, reload } = useGyms();
   const [selectedGym, setSelectedGym]   = useState<GymSummary | null>(null);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!gyms || gyms.length === 0) {
+     
+      setSelectedGym({
+        gymId: "fittech-sandton",
+        name: "Fit Tech Sandton",
+        address: "Sandton, Johannesburg",
+        currentCount: 100,
+        capacity: 100,
+        percentFull: 100,
+        isFull: true,
+      });
+      return;
+    }
+
+    const found = gyms.find((g) => String(g.name).toLowerCase().includes("sandton") || g.name === "Fit Tech Sandton");
+    const base = found ?? gyms[0];
+    if (base) {
+      const normalizedPct = Number.isFinite(Number(base.percentFull)) ? Math.min(100, Math.max(0, Math.round(Number(base.percentFull)))) : 0;
+      const adjusted = {
+        ...base,
+        percentFull: base.isFull ? 100 : normalizedPct,
+      } as GymSummary;
+      setSelectedGym(adjusted);
+    }
+  }, [loading, gyms]);
+
+  const {
+    slots, slotsLoading, selectedSlot, setSelectedSlot,
+    bookingState, bookingError, book,
+  } = useGymDetail(selectedGym?.gymId ?? null);
 
   if (loading) {
     return (
@@ -327,81 +360,123 @@ export const GymCapacityScreen: React.FC = () => {
     );
   }
 
-  const openGyms = gyms.filter((g) => !g.isFull);
-  const fullGyms = gyms.filter((g) =>  g.isFull);
-
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
+  <View style={styles.scroll}>
         <View style={styles.header}>
           <View>
             <Text style={styles.headerSub}>Johannesburg</Text>
             <Text style={styles.headerTitle}>FitTech Gyms</Text>
           </View>
-          <View style={styles.liveBadge}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveTxt}>LIVE</Text>
+          <View style={styles.liveWrap}>
+            <View style={styles.liveBadge}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveTxt}>LIVE</Text>
+            </View>
+            {getActiveBookingGymId() && (
+              <View style={styles.bookingLock}>
+                <Text style={styles.bookingLockTxt}>Booking locked to a gym</Text>
+              </View>
+            )}
           </View>
         </View>
 
         {/* Summary row */}
         <View style={styles.summaryRow}>
           <View style={[styles.summaryPill, { borderColor: C.green + "50", backgroundColor: C.green + "15" }]}>
-            <Text style={[styles.summaryVal, { color: C.green }]}>{openGyms.length}</Text>
+            <Text style={[styles.summaryVal, { color: C.green }]}>{selectedGym && !selectedGym.isFull ? 1 : 0}</Text>
             <Text style={[styles.summaryLbl, { color: C.green }]}>Open</Text>
           </View>
           <View style={[styles.summaryPill, { borderColor: C.red + "50", backgroundColor: C.red + "15" }]}>
-            <Text style={[styles.summaryVal, { color: C.red }]}>{fullGyms.length}</Text>
+            <Text style={[styles.summaryVal, { color: C.red }]}>{selectedGym && selectedGym.isFull ? 1 : 0}</Text>
             <Text style={[styles.summaryLbl, { color: C.red }]}>Full</Text>
           </View>
           <View style={[styles.summaryPill, { borderColor: C.blue + "50", backgroundColor: C.blue + "15" }]}>
-            <Text style={[styles.summaryVal, { color: C.blue }]}>{gyms.length}</Text>
+            <Text style={[styles.summaryVal, { color: C.blue }]}>{selectedGym ? 1 : 0}</Text>
             <Text style={[styles.summaryLbl, { color: C.blue }]}>Total</Text>
           </View>
         </View>
 
-        {/* Available gyms */}
-        {openGyms.length > 0 && (
+        {selectedGym && (
           <>
-            <Text style={styles.sectionHeader}>Available Now</Text>
-            {openGyms.map((gym) => (
-              <GymCard key={gym.gymId} gym={gym} onPress={() => setSelectedGym(gym)} />
-            ))}
+            <Text style={styles.sectionHeader}>FitTech Sandton</Text>
+
+            <GymCard gym={selectedGym} onPress={() => {}} />
+
+            
+            <View style={{ marginTop: 12 }}>
+              <View style={styles.statsBox}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statVal}>{selectedGym.currentCount}</Text>
+                  <Text style={styles.statLbl}>Inside now</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statVal}>{selectedGym.capacity}</Text>
+                  <Text style={styles.statLbl}>Capacity</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={[styles.statVal, { color: Math.max(0, selectedGym.capacity - selectedGym.currentCount) > 0 ? C.green : C.red }]}>{Math.max(0, selectedGym.capacity - selectedGym.currentCount)}</Text>
+                  <Text style={styles.statLbl}>Available</Text>
+                </View>
+                <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <MiniRing pct={selectedGym.percentFull} size={64} />
+                    <Text style={styles.statLbl}>{`${Math.min(100, Math.max(0, Math.round(selectedGym.percentFull)))}% full`}</Text>
+                  </View>
+              </View>
+
+              <View style={{ marginTop: 16, marginBottom: 20 }}>
+                <StatusPill label={getStatus(selectedGym.percentFull, selectedGym.isFull).label} color={getStatus(selectedGym.percentFull, selectedGym.isFull).color} />
+              </View>
+
+              <View style={styles.divider} />
+
+              {/* Slot picker area */}
+              <Text style={styles.sectionTitle}>Pick a time slot</Text>
+              <Text style={styles.sectionSub}>Select when you want to work out today</Text>
+
+              {slotsLoading
+                ? <ActivityIndicator color={C.orange} style={{ marginVertical: 24 }} />
+                : <SlotPicker slots={slots} selected={selectedSlot} onSelect={setSelectedSlot} />
+              }
+
+              <TouchableOpacity
+                style={[
+                  styles.bookBtn,
+                  (!selectedSlot || bookingState === "loading") && { backgroundColor: "#1C2637", borderColor: C.border },
+                  bookingState === "success" && { backgroundColor: C.green, borderColor: C.green },
+                ]}
+                onPress={() => book(selectedGym)}
+                disabled={!selectedSlot || bookingState === "success" || bookingState === "loading" || selectedGym.isFull}
+                activeOpacity={0.85}
+              >
+                {bookingState === "loading"
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={[styles.bookBtnTxt, !selectedSlot && { color: C.textSec }]}>{selectedGym.isFull ? "Gym is full" : bookingState === "success" ? "✓ Booking Confirmed" : (!selectedSlot ? "Select a time slot above" : `Book ${selectedSlot}`)}</Text>
+                }
+              </TouchableOpacity>
+
+              {bookingState === "error" && (
+                <View style={styles.errBanner}>
+                  <Text style={styles.errBannerTxt}>{bookingError ?? "Booking failed — please try again."}</Text>
+                </View>
+              )}
+            </View>
           </>
         )}
+  </View>
 
-        {/* Full gyms */}
-        {fullGyms.length > 0 && (
-          <>
-            <Text style={styles.sectionHeader}>Currently Full</Text>
-            {fullGyms.map((gym) => (
-              <GymCard key={gym.gymId} gym={gym} onPress={() => setSelectedGym(gym)} />
-            ))}
-          </>
-        )}
-      </ScrollView>
 
-      {/* Detail modal */}
-      {selectedGym && (
-        <GymDetailModal
-          gym={selectedGym}
-          visible={!!selectedGym}
-          onClose={() => setSelectedGym(null)}
-        />
-      )}
     </SafeAreaView>
   );
 };
 
-// ── Styles ───────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safe:        { flex: 1, backgroundColor: C.bg },
-  scroll:      { padding: 20, paddingBottom: 48 },
+  scroll:      { flex: 1, padding: 20 },
   centered:    { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, backgroundColor: C.bg },
 
   header:      { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 },
@@ -411,6 +486,9 @@ const styles = StyleSheet.create({
   liveBadge:   { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: C.green + "20", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: C.green + "40" },
   liveDot:     { width: 7, height: 7, borderRadius: 4, backgroundColor: C.green },
   liveTxt:     { fontSize: 10, fontWeight: "700", color: C.green, letterSpacing: 1.5 },
+  liveWrap:    { alignItems: "flex-end", justifyContent: "center" },
+  bookingLock: { marginTop: 8, backgroundColor: "#122026", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: "#253a43" },
+  bookingLockTxt: { color: C.textSec, fontSize: 12 },
 
   summaryRow:  { flexDirection: "row", gap: 10, marginBottom: 24 },
   summaryPill: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 14, borderWidth: 1 },
@@ -431,14 +509,13 @@ const styles = StyleSheet.create({
   statusDot:   { width: 6, height: 6, borderRadius: 3 },
   statusTxt:   { fontSize: 12, fontWeight: "600" },
 
-  // Stats box inside modal
+ 
   statsBox:     { flexDirection: "row", backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingVertical: 18, paddingHorizontal: 8, alignItems: "center" },
   statItem:     { flex: 1, alignItems: "center" },
   statVal:      { fontSize: 22, fontWeight: "700", color: C.textPrimary },
   statLbl:      { fontSize: 11, color: C.textSec, marginTop: 3 },
   statDivider:  { width: 1, height: 40, backgroundColor: C.border },
 
-  // Modal
   modalSafe:    { flex: 1, backgroundColor: C.bg },
   modalScroll:  { padding: 24, paddingBottom: 48 },
   modalHeader:  { flexDirection: "row", justifyContent: "flex-end", marginBottom: 12 },

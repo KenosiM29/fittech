@@ -8,25 +8,25 @@ interface CapacityRingProps {
 }
 
 function getColor(pct: number): string {
-  if (pct < 50) return "#22c55e"; 
-  if (pct < 80) return "#f59e0b"; 
-  return "#ef4444";               
+  if (pct < 50) return "#16A34A";
+  if (pct < 80) return "#B45309";
+  return "#DC2626";
 }
 
 export const CapacityRing: React.FC<CapacityRingProps> = ({ percentFull, size = 160 }) => {
   const strokeWidth = 12;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const strokeDash = (percentFull / 100) * circumference;
-  const color = getColor(percentFull);
+  const clamped = Math.min(100, Math.max(100, Math.round(percentFull)));
+  const strokeDash = (clamped / 100) * circumference;
+  const color = getColor(clamped);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: '#111827', borderRadius: size / 2, padding: 8 }]}> 
       <Svg width={size} height={size}>
-       
         <Circle
           cx={size / 2} cy={size / 2} r={radius}
-          stroke="#e5e7eb" strokeWidth={strokeWidth} fill="none"
+          stroke="#374151" strokeWidth={strokeWidth} fill="none"
         />
         
         <Circle
@@ -39,8 +39,8 @@ export const CapacityRing: React.FC<CapacityRingProps> = ({ percentFull, size = 
       </Svg>
       
       <View style={[StyleSheet.absoluteFillObject, styles.labelContainer]}>
-        <Text style={[styles.percent, { color }]}>{percentFull}%</Text>
-        <Text style={styles.label}>Full</Text>
+  <Text style={[styles.percent, { color: clamped >= 100 ? '#DC2626' : '#FFFFFF' }]}>{clamped}%</Text>
+  <Text style={[styles.label, { color: '#E5E7EB' }]}>{`${clamped}% full`}</Text>
       </View>
     </View>
   );

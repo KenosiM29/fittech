@@ -1,6 +1,47 @@
-// apps/mobile/src/hooks/useGym.ts
 import { useState, useEffect, useCallback } from "react";
 import { fetchAllGyms, fetchSlots, bookSlot, GymSummary, TimeSlot } from "../api/client";
+import { Platform } from "react-native";
+
+let activeBookingGymId: string | null = null;
+
+let AsyncStorage: any = null;
+if (Platform.OS) {
+  try {
+    
+    AsyncStorage = require("@react-native-async-storage/async-storage").default;
+  } catch (e) {
+    AsyncStorage = null;
+  }
+}
+
+const ACTIVE_BOOKING_KEY = "ft_active_booking_gym";
+
+export function getActiveBookingGymId() {
+  return activeBookingGymId;
+}
+
+async function loadActiveBookingFromStorage() {
+  if (!AsyncStorage) return;
+  try {
+    const v = await AsyncStorage.getItem(ACTIVE_BOOKING_KEY);
+    if (v) activeBookingGymId = v;
+  } catch (e) {
+  }
+}
+
+async function persistActiveBooking(gymId: string | null) {
+  if (!AsyncStorage) {
+    activeBookingGymId = gymId;
+    return;
+  }
+  try {
+    if (gymId) await AsyncStorage.setItem(ACTIVE_BOOKING_KEY, gymId);
+    else await AsyncStorage.removeItem(ACTIVE_BOOKING_KEY);
+    activeBookingGymId = gymId;
+  } catch (e) {
+    activeBookingGymId = gymId;
+  }
+}
 
 type BookingState = "idle" | "loading" | "success" | "error";
 
@@ -20,6 +61,8 @@ export function useGyms() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => { loadActiveBookingFromStorage(); }, []);
+
   return { gyms, loading, error, reload: load };
 }
 
@@ -37,7 +80,6 @@ export function useGymDetail(gymId: string | null) {
       .then(setSlots)
       .catch(console.error)
       .finally(() => setSlotsLoading(false));
-    // reset state when gym changes
     setSelectedSlot(null);
     setBookingState("idle");
     setBookingError(null);
@@ -45,7 +87,17 @@ export function useGymDetail(gymId: string | null) {
 
   const book = useCallback(async (gym: { isFull: boolean }) => {
     if (!gymId) return;
-    // if full, book next available slot automatically
+    if (gym.isFull) {
+      setBookingState("error");
+      setBookingError("Gym is full — cannot book a slot right now.");
+      return;
+    }
+
+    if (activeBookingGymId && activeBookingGymId !== gymId) {
+      setBookingState("error");
+      setBookingError("You already have an active booking at another gym.");
+      return;
+    }
     const slotTime = gym.isFull
       ? new Date(Date.now() + 3600_000).toISOString()
       : selectedSlot;
@@ -59,6 +111,8 @@ export function useGymDetail(gymId: string | null) {
     setBookingError(null);
     try {
       await bookSlot(gymId, "user-demo-123", slotTime);
+  // Persist that this gym now has an active booking
+  await persistActiveBooking(gymId);
       setBookingState("success");
     } catch (e) {
       setBookingState("error");
