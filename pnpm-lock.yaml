@@ -32,9 +32,15 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@expo-google-fonts/poppins':
+        specifier: ^0.4.1
+        version: 0.4.1
       expo:
         specifier: ~54.0.33
         version: 54.0.33(@babel/core@7.29.0)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      expo-font:
+        specifier: ~14.0.11
+        version: 14.0.11(expo@54.0.33(@babel/core@7.29.0)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       expo-status-bar:
         specifier: ~3.0.9
         version: 3.0.9(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
@@ -621,6 +627,9 @@ packages:
 
   '@emnapi/wasi-threads@1.2.0':
     resolution: {integrity: sha512-N10dEJNSsUx41Z6pZsXU8FjPjpBEplgH24sfkmITrBED1/U2Esum9F3lfLrMjKHHjmi557zQn7kR9R+XWXu5Rg==}
+
+  '@expo-google-fonts/poppins@0.4.1':
+    resolution: {integrity: sha512-LiX5oEryJqDt3UmWwr4oqf11hGMz/JEffkkNcZ3UtGwyoMFzXmBmTwcrAWrEttxypxmLNmPykDg+CY2VjKve9A==}
 
   '@expo/cli@54.0.23':
     resolution: {integrity: sha512-km0h72SFfQCmVycH/JtPFTVy69w6Lx1cHNDmfLfQqgKFYeeHTjx7LVDP4POHCtNxFP2UeRazrygJhlh4zz498g==}
@@ -4499,6 +4508,8 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
+
+  '@expo-google-fonts/poppins@0.4.1': {}
 
   '@expo/cli@54.0.23(expo@54.0.33(@babel/core@7.29.0)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))':
     dependencies:

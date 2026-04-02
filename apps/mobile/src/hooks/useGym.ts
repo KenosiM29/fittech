@@ -1,36 +1,70 @@
 // apps/mobile/src/hooks/useGym.ts
 import { useState, useEffect, useCallback } from "react";
-import { fetchCapacity, bookSlot, GymCapacity } from "../api/client";
+import { fetchAllGyms, fetchSlots, bookSlot, GymSummary, TimeSlot } from "../api/client";
 
 type BookingState = "idle" | "loading" | "success" | "error";
 
-export function useGym(gymId: string) {
-  const [capacity, setCapacity] = useState<GymCapacity | null>(null);
-  const [capacityLoading, setCapacityLoading] = useState(true);
-  const [capacityError, setCapacityError] = useState<string | null>(null);
+export function useGyms() {
+  const [gyms, setGyms] = useState<GymSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState<string | null>(null);
 
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchAllGyms()
+      .then(setGyms)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  return { gyms, loading, error, reload: load };
+}
+
+export function useGymDetail(gymId: string | null) {
+  const [slots, setSlots]               = useState<TimeSlot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [bookingState, setBookingState] = useState<BookingState>("idle");
   const [bookingError, setBookingError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchCapacity(gymId)
-      .then(setCapacity)
-      .catch((e: Error) => setCapacityError(e.message))
-      .finally(() => setCapacityLoading(false));
+    if (!gymId) return;
+    setSlotsLoading(true);
+    fetchSlots(gymId)
+      .then(setSlots)
+      .catch(console.error)
+      .finally(() => setSlotsLoading(false));
+    // reset state when gym changes
+    setSelectedSlot(null);
+    setBookingState("idle");
+    setBookingError(null);
   }, [gymId]);
 
-  const book = useCallback(async () => {
+  const book = useCallback(async (gym: { isFull: boolean }) => {
+    if (!gymId) return;
+    // if full, book next available slot automatically
+    const slotTime = gym.isFull
+      ? new Date(Date.now() + 3600_000).toISOString()
+      : selectedSlot;
+
+    if (!slotTime) {
+      setBookingError("Please select a time slot first.");
+      return;
+    }
+
     setBookingState("loading");
     setBookingError(null);
     try {
-      const slotTime = new Date(Date.now() + 3600_000).toISOString(); // next hour
       await bookSlot(gymId, "user-demo-123", slotTime);
       setBookingState("success");
     } catch (e) {
       setBookingState("error");
-      setBookingError(e instanceof Error ? e.message : "Unknown error");
+      setBookingError(e instanceof Error ? e.message : "Booking failed");
     }
-  }, [gymId]);
+  }, [gymId, selectedSlot]);
 
-  return { capacity, capacityLoading, capacityError, bookingState, bookingError, book };
+  return { slots, slotsLoading, selectedSlot, setSelectedSlot, bookingState, bookingError, book };
 }

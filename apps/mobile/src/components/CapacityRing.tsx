@@ -1,17 +1,16 @@
-// apps/mobile/src/components/CapacityRing.tsx
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 
 interface CapacityRingProps {
-  percentFull: number; // 0–100
+  percentFull: number; 
   size?: number;
 }
 
 function getColor(pct: number): string {
-  if (pct < 50) return "#22c55e"; // green
-  if (pct < 80) return "#f59e0b"; // amber
-  return "#ef4444";               // red
+  if (pct < 50) return "#22c55e"; 
+  if (pct < 80) return "#f59e0b"; 
+  return "#ef4444";               
 }
 
 export const CapacityRing: React.FC<CapacityRingProps> = ({ percentFull, size = 160 }) => {
@@ -24,12 +23,12 @@ export const CapacityRing: React.FC<CapacityRingProps> = ({ percentFull, size = 
   return (
     <View style={styles.container}>
       <Svg width={size} height={size}>
-        {/* Background track */}
+       
         <Circle
           cx={size / 2} cy={size / 2} r={radius}
           stroke="#e5e7eb" strokeWidth={strokeWidth} fill="none"
         />
-        {/* Progress arc */}
+        
         <Circle
           cx={size / 2} cy={size / 2} r={radius}
           stroke={color} strokeWidth={strokeWidth} fill="none"
@@ -38,7 +37,7 @@ export const CapacityRing: React.FC<CapacityRingProps> = ({ percentFull, size = 
           rotation="-90" origin={`${size / 2}, ${size / 2}`}
         />
       </Svg>
-      {/* Center text overlaid */}
+      
       <View style={[StyleSheet.absoluteFillObject, styles.labelContainer]}>
         <Text style={[styles.percent, { color }]}>{percentFull}%</Text>
         <Text style={styles.label}>Full</Text>
