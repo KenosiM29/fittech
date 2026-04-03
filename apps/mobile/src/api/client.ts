@@ -51,9 +51,15 @@ export async function fetchAllGyms(): Promise<GymSummary[]> {
     const rawId = item.gymId ?? item.id ?? item.gym_id ?? `${String(item.name ?? 'gym')}-${idx}`;
     // Normalize percentFull: round and clamp to [0,100]
     const rawPercent = Number(item.percentFull ?? 0);
-    const percent = Number.isFinite(rawPercent)
+    let percent = Number.isFinite(rawPercent)
       ? Math.min(100, Math.max(0, Math.round(rawPercent)))
       : 0;
+
+    // If the server explicitly marks the gym as full but percent is missing/0,
+    // present it as 100% to the UI.
+    if ((item.isFull === true || item.is_full === true) && percent < 100) {
+      percent = 100;
+    }
 
     return {
       gymId:        String(rawId),
@@ -82,24 +88,40 @@ export async function fetchSlots(gymId: string): Promise<TimeSlot[]> {
     : [];
 
   return items.map((s: any, idx: number) => {
-    // Ensure a stable, unique slotTime for use as a React key
-    const rawTime = s.slotTime ?? s.time ?? s.slot_time ?? s.id ?? null;
-    const slotTime = rawTime != null ? String(rawTime) : `slot-${gymId}-${idx}`;
+    // Try to locate a time value in common fields. If none parse as a date,
+    // synthesize a stable ISO time based on 'now' rounded to the next 30-minute
+    // interval plus an offset by index. This ensures slots always have a
+    // sensible time and a human-friendly label instead of 'slot-<gym>-<idx>'.
+    const candidate = s.slotTime ?? s.time ?? s.slot_time ?? s.startTime ?? s.start_time ?? s.id ?? null;
+    let parsedDate: Date | null = null;
+    if (candidate != null) {
+      const asStr = String(candidate);
+      const d = new Date(asStr);
+      if (!Number.isNaN(d.getTime())) parsedDate = d;
+    }
+
+    // If we couldn't parse a date from the server, create a fallback time.
+    if (!parsedDate) {
+      const now = new Date();
+      // Round up to the next 30-minute mark
+      const mins = now.getMinutes();
+      const rounded = mins % 30 === 0 ? mins : mins + (30 - (mins % 30));
+      const base = new Date(now);
+      base.setMinutes(rounded, 0, 0);
+      // Add idx*30 minutes so multiple synthesized slots are distinct and stable
+      parsedDate = new Date(base.getTime() + idx * 30 * 60 * 1000);
+    }
+
+    const slotTime = parsedDate.toISOString();
 
     // Build a human-friendly label: prefer an explicit label, otherwise format the time
     let label = typeof s.label === "string" && s.label.trim() !== "" ? s.label : undefined;
     if (!label) {
-      const parsed = new Date(slotTime);
-      if (!Number.isNaN(parsed.getTime())) {
-        // Format like '1pm', '2pm', or '1:30pm' if minutes are non-zero
-        const hours = parsed.getHours();
-        const minutes = parsed.getMinutes();
-        const ampm = hours >= 12 ? "pm" : "am";
-        const hour12 = ((hours + 11) % 12) + 1;
-        label = minutes === 0 ? `${hour12}${ampm}` : `${hour12}:${String(minutes).padStart(2, "0")}${ampm}`;
-      } else {
-        label = slotTime;
-      }
+      const hours = parsedDate.getHours();
+      const minutes = parsedDate.getMinutes();
+      const ampm = hours >= 12 ? "pm" : "am";
+      const hour12 = ((hours + 11) % 12) + 1;
+      label = minutes === 0 ? `${hour12}${ampm}` : `${hour12}:${String(minutes).padStart(2, "0")}${ampm}`;
     }
 
     return {
@@ -118,12 +140,16 @@ export async function fetchCapacity(gymId: string): Promise<GymCapacity> {
   const raw = await res.json();
   console.log("RAW API RESPONSE:", JSON.stringify(raw));
 
+  const rawPct = Number(raw.percentFull ?? 0);
+  let pct = Number.isFinite(rawPct) ? Math.min(100, Math.max(0, Math.round(rawPct))) : 0;
+  if ((raw.isFull === true || raw.is_full === true) && pct < 100) pct = 100;
+
   return {
     gymId:        String(raw.gymId        ?? gymId),
-  name:         String(raw.name         ?? "Fit Tech Sandton"),
+    name:         String(raw.name         ?? "Fit Tech Sandton"),
     capacity:     Number(raw.capacity     ?? 0),
     currentCount: Number(raw.currentCount ?? 0),
-    percentFull:  Number(raw.percentFull  ?? 0),
+    percentFull:  pct,
   };
 }
 

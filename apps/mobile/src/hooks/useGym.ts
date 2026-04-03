@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Alert } from "react-native";
 import { fetchAllGyms, fetchSlots, bookSlot, GymSummary, TimeSlot } from "../api/client";
 import { Platform } from "react-native";
 
@@ -87,21 +88,32 @@ export function useGymDetail(gymId: string | null) {
 
   const book = useCallback(async (gym: { isFull: boolean }) => {
     if (!gymId) return;
+
+    // Defensive: if gym reported full, block booking and inform user
     if (gym.isFull) {
       setBookingState("error");
       setBookingError("Gym is full — cannot book a slot right now.");
+      Alert.alert("Sorry", "sorry this slot is fully booked");
       return;
     }
 
+    // Prevent booking when another active booking exists
     if (activeBookingGymId && activeBookingGymId !== gymId) {
       setBookingState("error");
       setBookingError("You already have an active booking at another gym.");
       return;
     }
-    const slotTime = gym.isFull
-      ? new Date(Date.now() + 3600_000).toISOString()
-      : selectedSlot;
 
+    // Ensure the selected slot is still available client-side
+    const selected = slots.find((s) => s.slotTime === selectedSlot);
+    if (selected && !selected.available) {
+      setBookingState("error");
+      setBookingError("This slot is fully booked.");
+      Alert.alert("Sorry", "sorry this slot is fully booked");
+      return;
+    }
+
+    const slotTime = selectedSlot;
     if (!slotTime) {
       setBookingError("Please select a time slot first.");
       return;
@@ -111,14 +123,20 @@ export function useGymDetail(gymId: string | null) {
     setBookingError(null);
     try {
       await bookSlot(gymId, "user-demo-123", slotTime);
-  // Persist that this gym now has an active booking
-  await persistActiveBooking(gymId);
+      // Persist that this gym now has an active booking
+      await persistActiveBooking(gymId);
       setBookingState("success");
     } catch (e) {
       setBookingState("error");
-      setBookingError(e instanceof Error ? e.message : "Booking failed");
+      const msg = e instanceof Error ? e.message : "Booking failed";
+      setBookingError(msg);
+      // If server indicates the slot is full, show a friendly popup
+      const lower = String(msg).toLowerCase();
+      if (lower.includes("full") || lower.includes("fully booked") || lower.includes("slot")) {
+        Alert.alert("Sorry", "sorry this slot is fully booked");
+      }
     }
-  }, [gymId, selectedSlot]);
+  }, [gymId, selectedSlot, slots]);
 
   return { slots, slotsLoading, selectedSlot, setSelectedSlot, bookingState, bookingError, book };
 }

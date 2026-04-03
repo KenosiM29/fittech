@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from "react";
 import {
   View, Text, StyleSheet, ActivityIndicator, TouchableOpacity,
-  StatusBar, Modal,
+  ScrollView, StatusBar, Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from '@expo/vector-icons';
 import { getActiveBookingGymId } from "../hooks/useGym";
 import Svg, { Circle } from "react-native-svg";
 import { useGyms, useGymDetail } from "../hooks/useGym";
-import { GymSummary, TimeSlot } from "../api/client";
+import { GymSummary, TimeSlot, fetchCapacity, GymCapacity } from "../api/client";
 
 const C = {
   bg:          "#111827", 
@@ -43,14 +43,14 @@ const MiniRing: React.FC<{ pct: number; size?: number }> = ({ pct, size = 52 }) 
   const r     = (size - sw) / 2;
   const clamped = Math.min(100, Math.max(0, Math.round(pct)));
   const circ  = 2 * Math.PI * r;
-  const dash  = (clamped / 100) * circ;
+  const dash  = (clamped >= 100 ? circ : (clamped / 100) * circ);
   const color = getCapacityColor(clamped);
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
       <Svg width={size} height={size} style={{ position: "absolute" }}>
         <Circle cx={size/2} cy={size/2} r={r} stroke={C.border} strokeWidth={sw} fill="none" />
         <Circle cx={size/2} cy={size/2} r={r} stroke={color} strokeWidth={sw} fill="none"
-          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+          strokeDasharray={`${dash} ${clamped >= 100 ? 0 : circ}`} strokeLinecap="round"
           rotation="-90" origin={`${size/2},${size/2}`} />
       </Svg>
       <Text style={{ fontSize: size > 60 ? 16 : 11, fontWeight: "700", color }}>{clamped}%</Text>
@@ -66,8 +66,9 @@ const StatusPill: React.FC<{ label: string; color: string }> = ({ label, color }
 );
 
 const GymCard: React.FC<{ gym: GymSummary; onPress: () => void }> = ({ gym, onPress }) => {
-  const status    = getStatus(gym.percentFull, gym.isFull);
-  const available = gym.capacity - gym.currentCount;
+  const pct = Number(gym.percentFull ?? 0);
+  const status    = getStatus(pct, Boolean(gym.isFull));
+  const available = Number(gym.capacity ?? 0) - Number(gym.currentCount ?? 0);
   return (
   <TouchableOpacity style={styles.gymCard} onPress={onPress} activeOpacity={0.9}>
       <View style={styles.gymCardLeft}>
@@ -90,7 +91,7 @@ const GymCard: React.FC<{ gym: GymSummary; onPress: () => void }> = ({ gym, onPr
           </Text>
         </View>
       </View>
-      <MiniRing pct={gym.percentFull} />
+  <MiniRing pct={Number(gym.percentFull ?? 0)} />
     </TouchableOpacity>
   );
 };
@@ -147,7 +148,7 @@ const GymDetailModal: React.FC<{
   const isBooked  = bookingState === "success";
   const isBooking = bookingState === "loading";
   const activeBookingId = getActiveBookingGymId();
-  const status    = getStatus(gym.percentFull, gym.isFull);
+  const status    = getStatus(Number(gym.percentFull ?? 0), Boolean(gym.isFull));
   const available = Math.max(0, gym.capacity - gym.currentCount);
 
   const getBtnLabel = () => {
@@ -166,7 +167,7 @@ const GymDetailModal: React.FC<{
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.modalSafe}>
+      <SafeAreaView style={styles.modalSafe} edges={["top", "bottom"]}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <ScrollView
           contentContainerStyle={styles.modalScroll}
@@ -181,7 +182,10 @@ const GymDetailModal: React.FC<{
 
         
           <Text style={styles.modalName}>{gym.name}</Text>
-          <Text style={styles.modalAddress}>📍 {gym.address}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+            <Ionicons name="location-outline" size={14} color={C.textSec} style={{ marginRight: 6 }} />
+            <Text style={styles.modalAddress} numberOfLines={1}>{gym.address}</Text>
+          </View>
 
           {/* Stats row */}
           <View style={styles.statsBox}>
@@ -203,8 +207,8 @@ const GymDetailModal: React.FC<{
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <MiniRing pct={gym.percentFull} size={52} />
-              <Text style={styles.statLbl}>Full</Text>
+              <MiniRing pct={Number(gym.percentFull ?? 0)} size={52} />
+              <Text style={styles.statLbl}>{`${Math.min(100, Math.max(0, Math.round(Number(gym.percentFull ?? 0))))}% full`}</Text>
             </View>
           </View>
 
@@ -330,6 +334,45 @@ export const GymCapacityScreen: React.FC = () => {
     bookingState, bookingError, book,
   } = useGymDetail(selectedGym?.gymId ?? null);
 
+  // Keep an authoritative detail object fetched from the capacity endpoint so UI shows accurate numbers
+  const [detailGym, setDetailGym] = useState<GymSummary | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    if (!selectedGym) {
+      setDetailGym(null);
+      return;
+    }
+    fetchCapacity(selectedGym.gymId)
+      .then((cap: GymCapacity) => {
+        if (!mounted) return;
+        setDetailGym({
+          gymId: cap.gymId,
+          name: cap.name,
+          address: selectedGym.address ?? "",
+          currentCount: cap.currentCount,
+          capacity: cap.capacity,
+          percentFull: cap.percentFull,
+          isFull: cap.percentFull >= 100,
+        });
+      })
+      .catch(() => {
+        if (mounted) setDetailGym(selectedGym);
+      });
+    return () => { mounted = false; };
+  }, [selectedGym]);
+
+  const displayGym = detailGym ?? selectedGym;
+  const displayPct = displayGym
+    ? (displayGym.isFull ? 100 : Math.min(100, Math.max(0, Math.round(Number(displayGym.percentFull ?? 0)))))
+    : 0;
+  const displayIsFull = Boolean(displayGym?.isFull) || displayPct >= 100;
+
+  // Debug: surface the authoritative values to Metro/Expo logs so we can verify
+  // the running bundle is using the edited code.
+  // Remove or gate this in production.
+  // eslint-disable-next-line no-console
+  console.log("[FT DEBUG] displayPct=", displayPct, "displayIsFull=", displayIsFull, "detailGym=", displayGym?.gymId ?? displayGym);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -361,7 +404,7 @@ export const GymCapacityScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
   <View style={styles.scroll}>
         <View style={styles.header}>
@@ -385,51 +428,51 @@ export const GymCapacityScreen: React.FC = () => {
         {/* Summary row */}
         <View style={styles.summaryRow}>
           <View style={[styles.summaryPill, { borderColor: C.green + "50", backgroundColor: C.green + "15" }]}>
-            <Text style={[styles.summaryVal, { color: C.green }]}>{selectedGym && !selectedGym.isFull ? 1 : 0}</Text>
+            <Text style={[styles.summaryVal, { color: C.green }]}>{displayGym && !displayGym.isFull ? 1 : 0}</Text>
             <Text style={[styles.summaryLbl, { color: C.green }]}>Open</Text>
           </View>
           <View style={[styles.summaryPill, { borderColor: C.red + "50", backgroundColor: C.red + "15" }]}>
-            <Text style={[styles.summaryVal, { color: C.red }]}>{selectedGym && selectedGym.isFull ? 1 : 0}</Text>
+            <Text style={[styles.summaryVal, { color: C.red }]}>{displayGym && displayGym.isFull ? 1 : 0}</Text>
             <Text style={[styles.summaryLbl, { color: C.red }]}>Full</Text>
           </View>
           <View style={[styles.summaryPill, { borderColor: C.blue + "50", backgroundColor: C.blue + "15" }]}>
-            <Text style={[styles.summaryVal, { color: C.blue }]}>{selectedGym ? 1 : 0}</Text>
+            <Text style={[styles.summaryVal, { color: C.blue }]}>{displayGym ? 1 : 0}</Text>
             <Text style={[styles.summaryLbl, { color: C.blue }]}>Total</Text>
           </View>
         </View>
 
-        {selectedGym && (
+    {displayGym && (
           <>
             <Text style={styles.sectionHeader}>FitTech Sandton</Text>
 
-            <GymCard gym={selectedGym} onPress={() => {}} />
+      <GymCard gym={displayGym} onPress={() => {}} />
 
             
             <View style={{ marginTop: 12 }}>
               <View style={styles.statsBox}>
                 <View style={styles.statItem}>
-                  <Text style={styles.statVal}>{selectedGym.currentCount}</Text>
+                  <Text style={styles.statVal}>{displayGym.currentCount}</Text>
                   <Text style={styles.statLbl}>Inside now</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statVal}>{selectedGym.capacity}</Text>
+                  <Text style={styles.statVal}>{displayGym.capacity}</Text>
                   <Text style={styles.statLbl}>Capacity</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={[styles.statVal, { color: Math.max(0, selectedGym.capacity - selectedGym.currentCount) > 0 ? C.green : C.red }]}>{Math.max(0, selectedGym.capacity - selectedGym.currentCount)}</Text>
+                  <Text style={[styles.statVal, { color: Math.max(0, displayGym.capacity - displayGym.currentCount) > 0 ? C.green : C.red }]}>{Math.max(0, displayGym.capacity - displayGym.currentCount)}</Text>
                   <Text style={styles.statLbl}>Available</Text>
                 </View>
                 <View style={styles.statDivider} />
                   <View style={styles.statItem}>
-                    <MiniRing pct={selectedGym.percentFull} size={64} />
-                    <Text style={styles.statLbl}>{`${Math.min(100, Math.max(0, Math.round(selectedGym.percentFull)))}% full`}</Text>
+                    <MiniRing pct={displayPct} size={64} />
+                    <Text style={styles.statLbl}>{`${displayPct}% full`}</Text>
                   </View>
               </View>
 
               <View style={{ marginTop: 16, marginBottom: 20 }}>
-                <StatusPill label={getStatus(selectedGym.percentFull, selectedGym.isFull).label} color={getStatus(selectedGym.percentFull, selectedGym.isFull).color} />
+                <StatusPill label={getStatus(displayPct, displayIsFull).label} color={getStatus(displayPct, displayIsFull).color} />
               </View>
 
               <View style={styles.divider} />
@@ -449,13 +492,13 @@ export const GymCapacityScreen: React.FC = () => {
                   (!selectedSlot || bookingState === "loading") && { backgroundColor: "#1C2637", borderColor: C.border },
                   bookingState === "success" && { backgroundColor: C.green, borderColor: C.green },
                 ]}
-                onPress={() => book(selectedGym)}
-                disabled={!selectedSlot || bookingState === "success" || bookingState === "loading" || selectedGym.isFull}
+                onPress={() => book(displayGym)}
+                disabled={!selectedSlot || bookingState === "success" || bookingState === "loading" || displayGym.isFull}
                 activeOpacity={0.85}
               >
                 {bookingState === "loading"
                   ? <ActivityIndicator color="#fff" />
-                  : <Text style={[styles.bookBtnTxt, !selectedSlot && { color: C.textSec }]}>{selectedGym.isFull ? "Gym is full" : bookingState === "success" ? "✓ Booking Confirmed" : (!selectedSlot ? "Select a time slot above" : `Book ${selectedSlot}`)}</Text>
+                  : <Text style={[styles.bookBtnTxt, !selectedSlot && { color: C.textSec }]}>{displayGym.isFull ? "Gym is full" : bookingState === "success" ? "✓ Booking Confirmed" : (!selectedSlot ? "Select a time slot above" : `Book ${selectedSlot}`)}</Text>
                 }
               </TouchableOpacity>
 

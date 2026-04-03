@@ -17,7 +17,7 @@ export const CapacityRing: React.FC<CapacityRingProps> = ({ percentFull, size = 
   const strokeWidth = 12;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const clamped = Math.min(100, Math.max(100, Math.round(percentFull)));
+  const clamped = Math.min(100, Math.max(0, Math.round(percentFull)));
   const strokeDash = (clamped / 100) * circumference;
   const color = getColor(clamped);
 
@@ -32,7 +32,7 @@ export const CapacityRing: React.FC<CapacityRingProps> = ({ percentFull, size = 
         <Circle
           cx={size / 2} cy={size / 2} r={radius}
           stroke={color} strokeWidth={strokeWidth} fill="none"
-          strokeDasharray={`${strokeDash} ${circumference}`}
+          strokeDasharray={`${strokeDash} ${clamped >= 100 ? 0 : circumference}`}
           strokeLinecap="round"
           rotation="-90" origin={`${size / 2}, ${size / 2}`}
         />
